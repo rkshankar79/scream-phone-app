@@ -20,7 +20,7 @@ and analyze.
   - **Phone:** Settings → Wi-Fi → tap the network → IP address (e.g. `192.168.1.50`).
   - **Linux:** `ip addr` (the `wlan0`/`eth0` `inet` line).
 - Every node must be on a path that passes **UDP**. Same Wi-Fi LAN is easiest;
-  firewalls/NAT add complications (see [Troubleshooting](#7-troubleshooting)).
+  firewalls/NAT add complications (see [Troubleshooting](#8-troubleshooting)).
 
 ---
 
@@ -113,7 +113,82 @@ sudo tc qdisc del dev eth0 root      # cleanup
 
 ---
 
-## 5. What to validate
+## 5. With vs without L4S comparison
+
+This compares classic SCReAM (delay/loss-driven) against L4S (ECN-CE-driven) over
+the **same** bottleneck. No app changes are required, but note the topology rule:
+
+> **You must use the upstream Linux receiver** (`scream_bw_test_rx`). The app's own
+> receiver does not read ECN CE marks yet (`ceBits` is hardcoded to 0), so an
+> Android↔Android run cannot close the L4S loop — "with L4S" would look identical to
+> classic. The **sender** in this app is already L4S-capable (sets ECT(1), runs
+> `isL4s`, and acts on CE returned in RFC 8888 feedback).
+
+### Get a receiver that produces CE marks
+
+Pick **one** of:
+
+- **Software marking (easiest, no AQM).** Build the upstream receiver with the
+  built-in L4S test marker, which probabilistically turns ECT(1) into CE
+  (`PMARK = 0.1` → ~10%, compile-time):
+
+```bash
+cd scream/code
+cmake -DCMAKE_CXX_FLAGS="-DTEST_L4S" . && make
+./scream_bw_test_rx 30000
+```
+
+- **Real ECN AQM.** Build normally (`cmake . && make`) and put an ECN-marking AQM on
+  the bottleneck so it CE-marks ECT(1) traffic — e.g. `cake` / `fq_codel` with ECN,
+  or DualPI2:
+
+```bash
+# example: ECN-marking fq_codel as the bottleneck qdisc
+sudo tc qdisc replace dev ifb0 root fq_codel ecn
+```
+
+### First, confirm ECT(1) actually leaves the phone
+
+Some Android / Wi-Fi / cellular paths bleach the ECN bits (and the app's `IP_TOS`
+set is non-fatal). On the receiver host:
+
+```bash
+sudo tcpdump -v -n udp port 30000   # look for "ECT(1)" (and "CE" once marking is on)
+```
+
+If you only ever see `ECT(0)`/`Not-ECT`, the path is clearing ECN and L4S can't be
+tested on that link — try a different network.
+
+### Run both arms (same bottleneck both times)
+
+1. **Without L4S (baseline):** Sender card → `ECT(-1)` → **Start**. Run ~60 s,
+   **Stop**, **Export CSV** as `classic.csv`.
+2. **With L4S:** Sender card → `ECT(1)` → **Start** (against the CE-producing
+   receiver above). Run ~60 s, **Stop**, **Export CSV** as `l4s.csv`.
+
+Keep `Start kbps` / `Max kbps` and the bottleneck (`rate`/`delay`) identical across
+the two runs.
+
+### What to expect
+
+| Metric | Classic (`ECT(-1)`) | L4S (`ECT(1)` + CE) |
+|---|---|---|
+| `queue_delay_ms` | Higher, rises to the delay target before backing off | **Lower and more stable** (reacts to marks before a queue forms) |
+| `loss_pct` | Nonzero under load | Near zero (marks replace drops) |
+| `tx_kbps` | Comparable throughput | Comparable throughput, smoother |
+| `cwnd_bytes` | Larger sawtooth | Smaller, tighter oscillation |
+
+Plot `queue_delay_ms` from both CSVs on the same axis — the L4S run holding lower
+latency at similar throughput is the headline result.
+
+> Visualization caveat: the on-device dashboard and CSV do **not** surface CE % yet
+> (the sender collects it internally as `ceMarkPercent`). You infer the L4S effect
+> from the queue-delay/loss difference above. Surfacing CE %, plus app-receiver CE
+> reading for Android↔Android L4S, is the Phase 3 work in `PROJECT.md`.
+
+---
+
+## 6. What to validate
 
 | Signal | Expected behavior |
 |---|---|
@@ -125,7 +200,7 @@ sudo tc qdisc del dev eth0 root      # cleanup
 
 ---
 
-## 6. Capture and analyze
+## 7. Capture and analyze
 
 1. Run for a minute or two, varying impairments mid-run.
 2. **Stop** the sender, then tap **Export CSV (N samples)** → choose a location.
@@ -147,7 +222,7 @@ see the control loop track the bottleneck.
 
 ---
 
-## 7. Troubleshooting
+## 8. Troubleshooting
 
 - **FB stays 0 / CWND won't grow:** receiver unreachable. Check — receiver started
   **before** sender, correct IP, UDP port open in firewall, same subnet (or proper
@@ -162,6 +237,10 @@ see the control loop track the bottleneck.
   foreground service, so keep that device awake too.
 - **Pacing rate looks absurd at very low RTT:** approximation artifact at sub-ms
   RTT; sensible on real networks.
-- **ECN/L4S:** the `ect` field sets the TX codepoint, but CE-mark **reception** is
-  not implemented yet, so CE will read 0. Drive congestion with netem `loss` or a
-  real bottleneck to see loss/queue-delay react.
+- **ECN/L4S:** the `ect` field sets the TX codepoint, and the **sender** acts on CE
+  returned in feedback. The **app receiver** does not read CE yet, so Android↔Android
+  L4S won't close the loop — use the upstream Linux receiver for L4S (see §5). For
+  classic runs, drive congestion with netem `loss` or a real bottleneck.
+- **L4S "with" run looks like classic:** ECT(1) is being bleached on the path, or the
+  receiver isn't marking. Verify ECT(1)/CE with `tcpdump` (§5) and confirm the
+  receiver was built with `-DTEST_L4S` or sits behind an ECN-marking AQM.
