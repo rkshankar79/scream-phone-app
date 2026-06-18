@@ -233,7 +233,7 @@ return RTCP to the device.
 **Later**
 - [ ] Exact pacing-rate accessor.
 - [ ] Android↔Android + Android↔Linux real-network test runs.
-- [ ] Session logging / CSV export for offline analysis.
+- [x] Session logging / CSV export for offline analysis.
 - [ ] Config presets, mDNS/QR pairing.
 
 ---
