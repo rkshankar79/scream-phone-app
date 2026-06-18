@@ -1,5 +1,9 @@
 # SPA - SCReAM Phone App
 
+![Platform](https://img.shields.io/badge/platform-Android-green)
+![Language](https://img.shields.io/badge/Kotlin-C++-blue)
+![Status](https://img.shields.io/badge/status-Alpha-orange)
+
 Android implementation of the SCReAM congestion control algorithm from Ericsson Research.
 
 SPA is a real-time **network testing and visualization tool**: it runs Ericsson's
