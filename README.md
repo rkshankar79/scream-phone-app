@@ -86,6 +86,12 @@ and the Gradle wrapper), then Run ▶. Package id: `com.spa.scream`.
 
 Use a valid IP (e.g. `127.0.0.1`) — invalid addresses now fail loudly.
 
+## Real-world testing
+
+For testing over a real network (Android↔Android over Wi-Fi, Android↔Linux with
+the upstream receiver, inducing congestion with `tc`/netem, and analyzing the CSV),
+see [`TESTING.md`](TESTING.md).
+
 ## License
 
 Application code in this repository is provided as-is. The vendored SCReAM engine
