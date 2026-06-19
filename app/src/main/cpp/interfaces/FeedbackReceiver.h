@@ -22,8 +22,7 @@ class FeedbackReceiver {
    public:
     virtual ~FeedbackReceiver() = default;
 
-    // Record reception of one RTP packet (CE bits from the IP header; 0 until
-    // ECN reception is implemented).
+    // Record reception of one RTP packet (CE bits from IP ECN field via IP_RECVTOS).
     virtual void onRtpPacket(uint32_t timeNtp, uint32_t ssrc, int size,
                              uint16_t seqNr, uint8_t ceBits, bool isMarker,
                              uint32_t rtpTimestamp) = 0;

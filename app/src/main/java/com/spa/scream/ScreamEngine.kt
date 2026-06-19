@@ -27,6 +27,7 @@ data class Sample(
     val pacingKbps: Float,
     val queueDelayMs: Float,
     val lossPct: Float,
+    val cePct: Float,
     val feedbackCount: Long,
     val packetsSent: Long,
 )
@@ -121,6 +122,10 @@ object ScreamEngine {
         _running.value = false
     }
 
+    fun isSenderRunning(): Boolean = _running.value
+
+    fun isReceiverRunning(): Boolean = _rxRunning.value
+
     private fun startPolling() {
         pollJob?.cancel()
         pollJob = scope.launch {
@@ -144,6 +149,7 @@ object ScreamEngine {
             pacingKbps = m.pacingRateBps / 1000f,
             queueDelayMs = m.queueDelaySeconds * 1000f,
             lossPct = m.lossRatePercent,
+            cePct = m.ceMarkPercent,
             feedbackCount = m.feedbackPackets,
             packetsSent = m.packetsSent,
         )
@@ -166,7 +172,7 @@ object ScreamEngine {
         val sb = StringBuilder(64 + rows.size * 80)
         sb.append(
             "timestamp_ms,rtt_ms,cwnd_bytes,target_kbps,tx_kbps,pacing_kbps," +
-                "queue_delay_ms,loss_pct,feedback_count,packets_sent\n",
+                "queue_delay_ms,loss_pct,ce_pct,feedback_count,packets_sent\n",
         )
         for (s in rows) {
             sb.append(s.timestampMs).append(',')
@@ -177,6 +183,7 @@ object ScreamEngine {
                 .append(fmt(s.pacingKbps)).append(',')
                 .append(fmt(s.queueDelayMs)).append(',')
                 .append(fmt(s.lossPct)).append(',')
+                .append(fmt(s.cePct)).append(',')
                 .append(s.feedbackCount).append(',')
                 .append(s.packetsSent).append('\n')
         }
@@ -211,5 +218,20 @@ object ScreamEngine {
         rxPollJob = null
         bridge.stopReceiver()
         _rxRunning.value = false
+    }
+
+    /** Stops sessions (use [ScreamService.stopAll] for service lifecycle), clears metrics/charts/CSV. */
+    fun resetForNewTest() {
+        stop()
+        stopReceiver()
+        clearSessionData()
+    }
+
+    fun clearSessionData() {
+        history.clear()
+        clearSamples()
+        _metrics.value = Metrics()
+        _rxMetrics.value = ReceiverMetrics()
+        _lastError.value = null
     }
 }

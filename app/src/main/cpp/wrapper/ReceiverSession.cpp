@@ -17,6 +17,28 @@ namespace screamtest {
 namespace {
 constexpr int kRtpHeaderSize = 12;
 constexpr int kBufSize = 2048;
+
+/** Lower 2 bits of IP_TOS / traffic-class cmsg (ECN codepoint). */
+uint8_t ecnFromMsghdr(struct msghdr& msg) {
+    for (struct cmsghdr* c = CMSG_FIRSTHDR(&msg); c != nullptr;
+         c = CMSG_NXTHDR(&msg, c)) {
+        if (c->cmsg_level == IPPROTO_IP && c->cmsg_type == IP_TOS &&
+            c->cmsg_len >= CMSG_LEN(sizeof(int))) {
+            int tos = 0;
+            std::memcpy(&tos, CMSG_DATA(c), sizeof(tos));
+            return static_cast<uint8_t>(tos & 0x03);
+        }
+#if defined(IPV6_TCLASS)
+        if (c->cmsg_level == IPPROTO_IPV6 && c->cmsg_type == IPV6_TCLASS &&
+            c->cmsg_len >= CMSG_LEN(sizeof(int))) {
+            int tclass = 0;
+            std::memcpy(&tclass, CMSG_DATA(c), sizeof(tclass));
+            return static_cast<uint8_t>(tclass & 0x03);
+        }
+#endif
+    }
+    return 0;
+}
 }  // namespace
 
 ReceiverSession::~ReceiverSession() { stop(); }
@@ -50,6 +72,13 @@ bool ReceiverSession::start(const ReceiverConfig& cfg, std::string& err) {
     }
     int reuse = 1;
     setsockopt(fd_, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+    // Receive IP ECN codepoint (ECT/CE) via ancillary data on each datagram.
+    int recvtos = 1;
+    if (setsockopt(fd_, IPPROTO_IP, IP_RECVTOS, &recvtos, sizeof(recvtos)) < 0) {
+        fprintf(stderr, "ReceiverSession: IP_RECVTOS failed: %s\n",
+                std::strerror(errno));
+    }
 
     struct sockaddr_in local;
     std::memset(&local, 0, sizeof(local));
@@ -94,14 +123,34 @@ void ReceiverSession::rxLoop() {
     uint8_t buf[kBufSize];
     uint8_t fb[kBufSize];
     struct sockaddr_in src;
+    struct msghdr msg {};
+    struct iovec iov {};
+    char ctrl[CMSG_SPACE(sizeof(int))];
+
+    iov.iov_base = buf;
+    iov.iov_len = sizeof(buf);
+    msg.msg_name = &src;
+    msg.msg_namelen = sizeof(src);
+    msg.msg_iov = &iov;
+    msg.msg_iovlen = 1;
+    msg.msg_control = ctrl;
+    msg.msg_controllen = sizeof(ctrl);
 
     while (running_.load()) {
-        socklen_t srcLen = sizeof(src);
-        ssize_t n = recvfrom(fd_, buf, sizeof(buf), 0,
-                             reinterpret_cast<struct sockaddr*>(&src), &srcLen);
-        if (n < kRtpHeaderSize) {
-            continue;  // timeout or non-RTP
+        msg.msg_namelen = sizeof(src);
+        msg.msg_controllen = sizeof(ctrl);
+        ssize_t n = recvmsg(fd_, &msg, 0);
+        if (n < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                continue;
+            }
+            continue;
         }
+        if (n < kRtpHeaderSize) {
+            continue;
+        }
+
+        const uint8_t ceBits = ecnFromMsghdr(msg);
 
         // Parse the minimal RTP header.
         bool marker = (buf[1] & 0x80) != 0;
@@ -112,8 +161,6 @@ void ReceiverSession::rxLoop() {
         uint32_t ssrc = (static_cast<uint32_t>(buf[8]) << 24) |
                         (static_cast<uint32_t>(buf[9]) << 16) |
                         (static_cast<uint32_t>(buf[10]) << 8) | buf[11];
-        // ECN CE bits: 0 in the MVP (no recvmsg/cmsg yet) -> ECN-ready.
-        uint8_t ceBits = 0;
 
         int fbSize = -1;
         {
@@ -124,7 +171,7 @@ void ReceiverSession::rxLoop() {
         }
         if (fbSize > 0) {
             sendto(fd_, fb, static_cast<size_t>(fbSize), 0,
-                   reinterpret_cast<struct sockaddr*>(&src), srcLen);
+                   reinterpret_cast<struct sockaddr*>(&src), msg.msg_namelen);
         }
     }
 }

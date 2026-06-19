@@ -116,13 +116,13 @@ sudo tc qdisc del dev eth0 root      # cleanup
 ## 5. With vs without L4S comparison
 
 This compares classic SCReAM (delay/loss-driven) against L4S (ECN-CE-driven) over
-the **same** bottleneck. No app changes are required, but note the topology rule:
+the **same** bottleneck.
 
-> **You must use the upstream Linux receiver** (`scream_bw_test_rx`). The app's own
-> receiver does not read ECN CE marks yet (`ceBits` is hardcoded to 0), so an
-> Android↔Android run cannot close the L4S loop — "with L4S" would look identical to
-> classic. The **sender** in this app is already L4S-capable (sets ECT(1), runs
-> `isL4s`, and acts on CE returned in RFC 8888 feedback).
+> **Android receiver:** the app now reads CE via `recvmsg` + `IP_RECVTOS`, so
+> **Android↔Android L4S can work** when the path CE-marks ECT(1) traffic. You can
+> still use the upstream Linux `scream_bw_test_rx` (especially with `-DTEST_L4S`) as
+> a reference. The **sender** sets ECT(1), runs `isL4s`, and reacts to CE in RFC 8888
+> feedback — watch **CE rcvd** on the receiver phone and **CE %** on the sender.
 
 ### Get a receiver that produces CE marks
 
@@ -181,10 +181,9 @@ the two runs.
 Plot `queue_delay_ms` from both CSVs on the same axis — the L4S run holding lower
 latency at similar throughput is the headline result.
 
-> Visualization caveat: the on-device dashboard and CSV do **not** surface CE % yet
-> (the sender collects it internally as `ceMarkPercent`). You infer the L4S effect
-> from the queue-delay/loss difference above. Surfacing CE %, plus app-receiver CE
-> reading for Android↔Android L4S, is the Phase 3 work in `PROJECT.md`.
+> Visualization: sender **CE %** / **CE marks** and receiver **CE rcvd** are on the
+> dashboard; CSV includes `ce_pct`. If all stay 0 under `ECT(1)`, the path is not
+> delivering CE — try Linux `-DTEST_L4S` or an ECN AQM, and verify with `tcpdump`.
 
 ---
 
@@ -237,10 +236,7 @@ see the control loop track the bottleneck.
   foreground service, so keep that device awake too.
 - **Pacing rate looks absurd at very low RTT:** approximation artifact at sub-ms
   RTT; sensible on real networks.
-- **ECN/L4S:** the `ect` field sets the TX codepoint, and the **sender** acts on CE
-  returned in feedback. The **app receiver** does not read CE yet, so Android↔Android
-  L4S won't close the loop — use the upstream Linux receiver for L4S (see §5). For
-  classic runs, drive congestion with netem `loss` or a real bottleneck.
-- **L4S "with" run looks like classic:** ECT(1) is being bleached on the path, or the
-  receiver isn't marking. Verify ECT(1)/CE with `tcpdump` (§5) and confirm the
-  receiver was built with `-DTEST_L4S` or sits behind an ECN-marking AQM.
+- **ECN/L4S:** receiver reads CE via `recvmsg` + `IP_RECVTOS` on Android; sender
+  sets ECT and reports CE % from RTCP feedback. CE marks only appear when the path
+  delivers them (ECT(1) on send + ECN-capable bottleneck); many Wi‑Fi paths bleach
+  ECN — verify with `tcpdump` or receiver **CE rcvd** counter.

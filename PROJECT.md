@@ -209,8 +209,9 @@ return RTCP to the device.
 - **CE/loss = 0 on loopback** (lossless path; ECN CE reception not implemented).
 - **Invalid Server IP** now fails loudly (`invalid server IP: …`) instead of
   silently sending to `0.0.0.0`. Use `127.0.0.1`, not `1027.0.0.1`.
-- **Receiver** currently runs on native threads without the foreground service —
-  fine while foregrounded; long unattended receiver runs need the service.
+- **Receiver** runs in the same foreground service and wakelock as the sender —
+  long unattended receiver runs are supported; keep battery optimization off for
+  best results on some OEMs.
 - **TX < Target during ramp** is expected (`avgRateTx` is a slow filter).
 
 ---
@@ -223,12 +224,13 @@ return RTCP to the device.
 **Phase 2 — DONE (core)**
 - [x] Receiver mode, on-device loopback.
 - [ ] Sender/Receiver/Both **role selector** in UI.
-- [ ] Receiver under foreground service.
+- [x] Receiver under foreground service.
 
-**Phase 3 — L4S evaluation (next priority)**
-- [ ] `EcnManager`: CE-mark reception via `recvmsg`/cmsg (`IP_RECVTOS`).
-- [ ] Live CE %, mark-fraction, L4S vs classic comparison.
-- [ ] Switch codepoint to ECT(1) + enable `isL4s`.
+**Phase 3 — L4S evaluation (in progress)**
+- [x] Receiver CE-mark reception via `recvmsg`/cmsg (`IP_RECVTOS`).
+- [x] Live CE % on sender dashboard + `ce_pct` in CSV export.
+- [ ] Full `EcnManager` abstraction (IPv6 `IPV6_RECVTCLASS` on bind path).
+- [ ] L4S vs classic comparison test profile in `TESTING.md`.
 
 **Later**
 - [ ] Exact pacing-rate accessor.
