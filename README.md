@@ -5,6 +5,8 @@
 ![Status](https://img.shields.io/badge/status-Alpha-orange)
 
 Android implementation of the SCReAM congestion control algorithm from Ericsson Research.
+
+**Author:** Shankar Ramakrishnan  
 > Independent personal project. Not an official Ericsson product.
 
 SPA is a real-time **network testing and visualization tool**: it runs Ericsson's

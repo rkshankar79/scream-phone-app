@@ -1,5 +1,8 @@
 # SCReAM Phone App (SPA) — SCReAM / L4S Network Test Tool (Android)
 
+**Author:** Shankar Ramakrishnan  
+> Independent personal project. Not an official Ericsson product.
+
 A real-time **network testing and visualization tool** built around Ericsson's
 SCReAM congestion-control engine. The app runs SCReAM on Android, generates
 RTP/UDP test traffic, exchanges RFC 8888 RTCP feedback, and visualizes the
